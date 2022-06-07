@@ -36,7 +36,7 @@ const uploadFile = (req, res) => {
                     if (!existingHashes.length) {
                         let hash = new Hash({
                             sha256Hash: file.sha256Hash,
-                            blockingStatus: true,
+                            isBlocked: true,
                         });
                         hash.save((error) => {
                             if (error) {
@@ -52,9 +52,32 @@ const uploadFile = (req, res) => {
             }
         })
     }
+}
 
+const fileMetaData = (req, res) => {
+    File.findById(req.params.id,(error, result) => {
+        if (result === null) {
+            return res.status(404).send("Die angefragte Datei wurde nicht gefunden.");
+        }
+
+        Hash.findOne({"sha256Hash": result.sha256Hash}, (error, hashResult) => {
+            if (hashResult === null || error) {
+                return res.status(500).send("Fehler bei Abfrage des Blocking-Status. ");
+            }
+            console.log(hashResult);
+            return res.status(200).json({
+                fileName: result.fileName,
+                fileSize: result.fileSize,
+                uploadDate: result.uploadDate,
+                lastUsedDate: result.latestDownloadDate,
+                sha256Hash: result.sha256Hash,
+                isBlocked: hashResult.isBlocked,
+            });
+        });
+    });
 }
 
 module.exports = {
     uploadFile,
+    fileMetaData,
 }
