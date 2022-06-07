@@ -47,7 +47,7 @@ const uploadFile = (req, res) => {
                 });
 
                 return res.status(200).json({
-                    fileUrl: "https://localhost:49749/api/files/downloadFileById/" + result._id.toString(),
+                    fileUrl: "https://localhost:49749/api/files/downloadFileViaId/" + result._id.toString(),
                 });
             }
         })
@@ -77,7 +77,27 @@ const fileMetaData = (req, res) => {
     });
 }
 
+const fileViaId = (req, res) => {
+    File.findById(req.params.id,(error, result) => {
+        if (result === null) {
+            return res.status(404).send("Die angefragte Datei wurde nicht gefunden.");
+        }
+
+        Hash.findOne({"sha256Hash": result.sha256Hash}, (error, hashResult) => {
+            if (hashResult === null || error) {
+                return res.status(500).send("Fehler bei Abfrage des Blocking-Status. ");
+            }
+            if(hashResult.isBlocked) {
+                return res.status(403).send("Das Herunterladen dieser Datei ist nicht erlaubt.");
+            } else {
+                res.status(200).setHeader('Content-disposition', 'attachment; filename=' + result.fileName).send(result.fileBinary);
+            }
+        });
+    });
+}
+
 module.exports = {
     uploadFile,
     fileMetaData,
+    fileViaId,
 }
