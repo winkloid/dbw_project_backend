@@ -8,7 +8,6 @@ const FileSchema = new Schema ({
     uploadDate: {type: Date},
     latestDownloadDate: {type: Date},
     sha256Hash: {type: String},
-
 });
 
 module.exports = mongoose.model("File", FileSchema, "file");

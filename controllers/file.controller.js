@@ -1,4 +1,5 @@
 const File = require("../models/file.model");
+const Hash = require("../models/hash.model");
 const crypto = require("crypto");
 
 const uploadFile = (req, res) => {
@@ -17,11 +18,41 @@ const uploadFile = (req, res) => {
         let fileSize = req.files.uploadedFile.size;
         let fileName = req.files.uploadedFile.name;
         console.log(sha256Hash + " " + fileSize + " " + fileName);
-        return res.status(200).send("Erfolg: Datei gespeichert.");
-    }
-    let file = new File({
 
-    });
+        let file = new File({
+            fileBinary: uploadedFile,
+            fileName: fileName,
+            fileSize: fileSize,
+            uploadDate: uploadDate,
+            latestDownloadDate: latestDownloadDate,
+            sha256Hash: sha256Hash,
+        });
+        file.save((error, result) => {
+            if(error) {
+                return res.status(500).send("Fehler beim Speichern der Datei.");
+            } else {
+                // Nur grobe Annäherung, muss spaeter noch verbessert werden!
+                Hash.find({"sha256Hash": sha256Hash}, (error, existingHashes) => {
+                    if (!existingHashes.length) {
+                        let hash = new Hash({
+                            sha256Hash: file.sha256Hash,
+                            blockingStatus: true,
+                        });
+                        hash.save((error) => {
+                            if (error) {
+                                return res.status(500).send("Fehler beim Speichern des Dateihashes.");
+                            }
+                        });
+                    }
+                });
+
+                return res.status(200).json({
+                    fileUrl: "https://localhost:49749/api/files/downloadFileById/" + result._id.toString(),
+                });
+            }
+        })
+    }
+
 }
 
 module.exports = {
