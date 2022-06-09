@@ -6,6 +6,7 @@ const Schema = mongoose.Schema;
 const ChangeBlockingRequestSchema = new Schema({
     requestMessage: {type: String},
     blockFile: {type: Boolean},
+    requestDate: {type: Date},
     fileId: {type: String},
     fileName: {type: String},
     fileSize: {type: Number},

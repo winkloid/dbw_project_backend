@@ -152,6 +152,7 @@ const requestBlockingStatusChange = (req, res) => {
                 const changeBlockingRequest = new ChangeBlockingRequest({
                     requestMessage: (requestMessage) ? requestMessage : "",
                     blockFile: (requestBlocking) ? true : false,
+                    requestDate: new Date(),
                     fileId: result._id,
                     fileName: result.fileName,
                     fileSize: result.fileSize,
@@ -179,9 +180,20 @@ const requestBlockingStatusChange = (req, res) => {
     }
 }
 
+const blockingStatusChangeRequests = (req, res) => {
+    ChangeBlockingRequest.find({}, (error, changeBlockingRequests) => {
+        if(error) {
+            res.status(500).send(error);
+        } else {
+            return res.status(200).send(changeBlockingRequests);
+        }
+    });
+}
+
 module.exports = {
     uploadFile,
     fileMetaData,
     fileViaId,
     requestBlockingStatusChange,
+    blockingStatusChangeRequests,
 }
