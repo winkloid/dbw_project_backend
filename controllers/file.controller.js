@@ -190,10 +190,58 @@ const blockingStatusChangeRequests = (req, res) => {
     });
 }
 
+const acceptBlockingStatusChangeRequest = (req, res) => {
+    ChangeBlockingRequest.findById(req.params.requestId, (error, changeRequest) => {
+        if(error) {
+            return res.status(404).send(error);
+        }
+        if(changeRequest === null) {
+            return res.status(404).send("Die Anfrage zur Aenderung des Blocking-Status wurde nicht gefunden.");
+        }
+
+        Hash.findOne({"sha256Hash": changeRequest.sha256Hash}, (error, hashResult) => {
+            if(error) {
+                return res.status(404).send(error);
+            }
+            if(changeRequest.blockFile === hashResult.isBlocked) {
+                return res.status(500).send("Fehlerhafte Statusaenderungsanfrage - der angeforderte Blocking-Status ist bereits gesetzt.");
+            } else {
+
+                Hash.updateOne({"sha256Hash": changeRequest.sha256Hash}, {$set: {isBlocked: changeRequest.blockFile}}, (error, hashUpdate) => {
+
+                    ChangeBlockingRequest.deleteMany({"sha256Hash": changeRequest.sha256Hash}, (error) => {
+                        if(error) {
+                            return res.status(500).send(error);
+                        } else {
+                            return res.status(200).send("Erfolg: Status geaendert.");
+                        }
+                    });
+                })
+            }
+        });
+    });
+}
+
+const declineBlockingStatusChangeRequest = (req, res) => {
+    ChangeBlockingRequest.deleteOne({"_id": req.params.requestId}, (error, changeRequest) => {
+        console.log(changeRequest);
+        if (error) {
+            return res.status(404).send(error);
+        } else if (changeRequest.deletedCount === 0) {
+            return res.status(404).send("Fehler: Statusaenderungsanfrage nicht gefunden");
+        }
+        else {
+            return res.status(200).send("Erfolg: Anfrage abgelehnt.");
+        }
+    });
+}
+
 module.exports = {
     uploadFile,
     fileMetaData,
     fileViaId,
     requestBlockingStatusChange,
     blockingStatusChangeRequests,
+    acceptBlockingStatusChangeRequest,
+    declineBlockingStatusChangeRequest,
 }

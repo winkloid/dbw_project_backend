@@ -5,7 +5,9 @@ const {
     fileMetaData,
     fileViaId,
     requestBlockingStatusChange,
-    blockingStatusChangeRequests
+    blockingStatusChangeRequests,
+    acceptBlockingStatusChangeRequest,
+    declineBlockingStatusChangeRequest,
 } = require("../controllers/file.controller");
 const {request} = require("express");
 
@@ -18,5 +20,9 @@ router.get("/downloadFileViaId/:id", fileViaId);
 router.post("/requestBlockingStatusChange/:id", requestBlockingStatusChange);
 
 router.get("/blockingStatusChangeRequests", blockingStatusChangeRequests);
+
+router.delete("/acceptBlockingStatusChangeRequest/:requestId", acceptBlockingStatusChangeRequest);
+
+router.delete("/declineBlockingStatusChangeRequest/:requestId", declineBlockingStatusChangeRequest);
 
 module.exports = router;
