@@ -1,5 +1,6 @@
 const File = require("../models/file.model");
 const Hash = require("../models/hash.model");
+const ChangeBlockingRequest = require("../models/changeblockingrequest.model");
 const crypto = require("crypto");
 
 const uploadFile = (req, res) => {
@@ -9,7 +10,6 @@ const uploadFile = (req, res) => {
     }
     // Bad request status, wenn zu große Daten versucht werden, hochzuladen
     else if (req.files.uploadedFile.truncated) {
-        console.log(req.files.uploadedFile.size);
         return res.status(400).send("Fehler: Datei ist zu gross.");
     }
     else {
@@ -25,7 +25,7 @@ const uploadFile = (req, res) => {
         // console.log(fileMimetype);
 
         // Erstellen eines Datenbankdokuments fuer die hochgeladene Datei
-        let file = new File({
+        const file = new File({
             fileBinary: uploadedFile,
             fileName: fileName,
             fileSize: fileSize,
@@ -52,12 +52,13 @@ const uploadFile = (req, res) => {
                             if (error) {
                                 return res.status(500).send("Fehler beim Speichern des Dateihashes.");
                             }
+
+                            // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
+                            return res.status(200).json({
+                                fileUrl: "http://localhost:49749/api/files/downloadFileViaId/" + result._id.toString(),
+                            });
                         });
                     }
-                });
-                // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
-                return res.status(200).json({
-                    fileUrl: "http://localhost:49749/api/files/downloadFileViaId/" + result._id.toString(),
                 });
             }
         })
@@ -67,6 +68,10 @@ const uploadFile = (req, res) => {
 const fileMetaData = (req, res) => {
     // Versuche, Datei zu finden, die die als Param uebergebene ID besitzt
     File.findById(req.params.id,(error, result) => {
+        if(error) {
+            return res.status(500).send("Interner Fehler");
+        }
+
         // wenn nicht gefunden: 404-Status
         if (result === null) {
             return res.status(404).send("Die angefragte Datei wurde nicht gefunden.");
@@ -93,6 +98,10 @@ const fileMetaData = (req, res) => {
 const fileViaId = (req, res) => {
     // versuche, Datei zu finden, die die als Param uebergebene ID besitzt
     File.findById(req.params.id,(error, result) => {
+        if(error) {
+            return res.status(500).send("Interner Fehler");
+        }
+
         // wenn nicht gefunden: 404-Status
         if (result === null) {
             return res.status(404).send("Die angefragte Datei wurde nicht gefunden.");
@@ -113,8 +122,66 @@ const fileViaId = (req, res) => {
     });
 }
 
+const requestBlockingStatusChange = (req, res) => {
+    try {
+        const requestMessage = req.body.requestMessage;
+        const requestBlocking = req.body.blockFile;
+
+        File.findById(req.params.id, (error, result) => {
+            if (error) {
+                return res.status(500).send("Fehler beim Verarbeiten der Datei-ID.");
+            }
+
+            if (result === null) {
+                return res.status(404).send("Die Datei, auf die sich die Anfrage bezog, wurde nicht gefunden.");
+            }
+
+            // ueberpruefen, ob entsprechende Datei bereits blockiert/deblockiert ist
+            Hash.findOne({"sha256Hash": result.sha256Hash}, (error, hashResult) => {
+                if (hashResult === null || error) {
+                    return res.status(500).send("Interner Fehler bei Abfrage des Blocking-Status. ");
+                }
+                if ((requestBlocking && hashResult.isBlocked) || (!requestBlocking && !hashResult.isBlocked)) {
+                    if (requestBlocking) {
+                        return res.status(400).send("Die entsprechende Datei ist bereits blockiert.");
+                    } else {
+                        return res.status(400).send("Die entsprechende Datei ist bereits de-blockiert.");
+                    }
+                }
+
+                const changeBlockingRequest = new ChangeBlockingRequest({
+                    requestMessage: (requestMessage) ? requestMessage : "",
+                    blockFile: (requestBlocking) ? true : false,
+                    fileId: result._id,
+                    fileName: result.fileName,
+                    fileSize: result.fileSize,
+                    fileMimetype: result.mimetype,
+                    uploadDate: result.uploadDate,
+                    sha256Hash: result.sha256Hash,
+                });
+
+                changeBlockingRequest.save((error) => {
+                    if (error) {
+                        return res.status(500).send("Interner Fehler beim Speichern der Unblocking-Anfrage.");
+                    }
+                });
+
+                if (requestBlocking) {
+                    return res.status(200).send("Die Blocking-Anfrage wurde gespeichert und wird bald vom Admin bearbeitet.");
+                } else {
+                    return res.status(200).send("Die Unblocking-Anfrage wurde gespeichert und wird bald vom Admin bearbeitet.");
+                }
+            });
+        });
+
+    } catch (error) {
+        res.status(400).send("Fehler: " + error);
+    }
+}
+
 module.exports = {
     uploadFile,
     fileMetaData,
     fileViaId,
+    requestBlockingStatusChange,
 }
