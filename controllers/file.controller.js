@@ -3,6 +3,25 @@ const Hash = require("../models/hash.model");
 const ChangeBlockingRequest = require("../models/changeblockingrequest.model");
 const crypto = require("crypto");
 
+
+// function to delete old files from db automatically
+async function deleteUnusedFiles() {
+    const now = new Date().getTime();
+    const timeToLive = 1000*60*60*24*14; // time since latest download until file gets deleted: 14 days
+    const earliestAllowedLatestDownloadDate = now-timeToLive;
+    File.deleteMany({"latestDownloadDate": {$lte: earliestAllowedLatestDownloadDate}}, (error, deletion) => {
+        console.log("Service for deleting unused files deleted " + deletion.deletedCount + " files.");
+    });
+    // automatically recall every 12 hours
+    setTimeout( async () => {
+        await deleteUnusedFiles();
+    }, (1000*60*60*12));
+}
+
+deleteUnusedFiles().then(() => {
+    console.log("Service for deleting unused files started...");
+})
+
 const uploadFile = (req, res) => {
     // Bad request status, wenn keine Dateien hochgeladen wurden
     if (!req.files.uploadedFile) { //|| Object.keys(req.files.uploadedFiles).length === 0) {
@@ -52,13 +71,12 @@ const uploadFile = (req, res) => {
                             if (error) {
                                 return res.status(500).send("Fehler beim Speichern des Dateihashes.");
                             }
-
-                            // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
-                            return res.status(200).json({
-                                fileUrl: "http://localhost:49749/api/files/downloadFileViaId/" + result._id.toString(),
-                            });
                         });
                     }
+                    // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
+                    return res.status(200).json({
+                        fileUrl: "http://localhost:49749/api/files/downloadFileViaId/" + result._id.toString(),
+                    });
                 });
             }
         })
@@ -115,8 +133,9 @@ const fileViaId = (req, res) => {
             if(hashResult.isBlocked) {
                 return res.status(403).send("Das Herunterladen dieser Datei ist nicht erlaubt.");
             } else {
+                result.latestDownloadDate = new Date();
                 // beim Senden der Datei: Header, die Dateinamen und Mimetype der Datei enthalten zum besseren Verstaendnis fuer HTTP-Client
-                res.status(200).setHeader('Content-disposition', 'attachment; filename=' + result.fileName, 'Content-type', result.fileMimetype).send(result.fileBinary);
+                return res.status(200).setHeader('Content-disposition', 'attachment; filename=' + result.fileName, 'Content-type', result.fileMimetype).send(result.fileBinary);
             }
         });
     });
