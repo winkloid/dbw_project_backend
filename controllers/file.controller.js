@@ -87,7 +87,7 @@ const fileMetaData = (req, res) => {
     // Versuche, Datei zu finden, die die als Param uebergebene ID besitzt
     File.findById(req.params.id,(error, result) => {
         if(error) {
-            return res.status(500).send("Interner Fehler");
+            return res.status(404).send("Angegebene ID befindet sich nicht im richtigen Format und konnte nicht gefunden werden.");
         }
 
         // wenn nicht gefunden: 404-Status
@@ -144,7 +144,10 @@ const fileViaId = (req, res) => {
 const requestBlockingStatusChange = (req, res) => {
     try {
         const requestMessage = req.body.requestMessage;
-        const requestBlocking = req.body.blockFile;
+        let requestBlocking = false;
+        if(req.body.blockFile === "true") { // blockFile muss hier als String mit "true" oder "false" gesendet werden für mehr Eindeutigkeit
+            requestBlocking = true;
+        }
 
         File.findById(req.params.id, (error, result) => {
             if (error) {
