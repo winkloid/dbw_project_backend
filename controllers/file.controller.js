@@ -75,7 +75,7 @@ const uploadFile = (req, res) => {
                     }
                     // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
                     return res.status(200).json({
-                        fileUrl: "http://localhost:49749/api/files/downloadFileViaId/" + result._id.toString(),
+                        fileUrl: result._id.toString(),
                     });
                 });
             }
