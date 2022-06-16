@@ -280,7 +280,8 @@ const blockingStatusChangeRequests = (req, res) => {
     });
 }
 
-const acceptBlockingStatusChangeRequest = (req, res) => {
+const acceptBlockingStatusChangeRequest = async (req, res) => {
+    let authenticatedAxiosClient = await shibbolethAuth();
     ChangeBlockingRequest.findById(req.params.requestId, (error, changeRequest) => {
         if (error) {
             return res.status(404).send(error);
@@ -296,17 +297,32 @@ const acceptBlockingStatusChangeRequest = (req, res) => {
             if (changeRequest.blockFile === hashResult.isBlocked) {
                 return res.status(500).send("Fehlerhafte Statusaenderungsanfrage - der angeforderte Blocking-Status ist bereits gesetzt.");
             } else {
+                // Senden der Änderungsanfrage an den Blocklist web service
+                return authenticatedAxiosClient({
+                    method: (changeRequest.blockFile) ? "put" : "delete",
+                    url: blockListUrl + "/" + changeRequest.sha256Hash,
+                    withCredentials: true,
+                }, {withCredentials: true}).then((blocklistResult) => {
 
-                Hash.updateOne({ "sha256Hash": changeRequest.sha256Hash }, { $set: { isBlocked: changeRequest.blockFile } }, (error, hashUpdate) => {
-
-                    ChangeBlockingRequest.deleteMany({ "sha256Hash": changeRequest.sha256Hash }, (error) => {
-                        if (error) {
-                            return res.status(500).send(error);
-                        } else {
-                            return res.status(200).send("Erfolg: Status geaendert.");
-                        }
-                    });
-                })
+                    // wenn Blocklist service erwarteten Status zurückgibt, trage Änderungen auch in lokalen SHA256-Cache ein
+                    if(blocklistResult.status === 201 || blocklistResult.status === 204) {
+                        console.log(blocklistResult.status);
+                        Hash.updateOne({ "sha256Hash": changeRequest.sha256Hash }, { $set: { isBlocked: changeRequest.blockFile } }, (error, hashUpdate) => {
+                            ChangeBlockingRequest.deleteMany({ "sha256Hash": changeRequest.sha256Hash }, (error) => {
+                                if (error) {
+                                    return res.status(500).send(error);
+                                } else {
+                                    return res.status(200).send("Erfolg: Status geaendert.");
+                                }
+                            });
+                        });
+                    } else {
+                        // wenn Blocklist Service einen unerwarteten Status zurückgibt
+                        return res.status(500).send("Interner Fehler: Blocklist Web Service nicht erreichbar.");
+                    }
+                }).catch((error) => {
+                    return res.status(500).send("Interner Fehler bei der Abfrage des Blocklist Web Services: " + error);
+                });  
             }
         });
     });
