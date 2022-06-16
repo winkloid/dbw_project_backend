@@ -133,9 +133,14 @@ const fileViaId = (req, res) => {
             if(hashResult.isBlocked) {
                 return res.status(403).send("Das Herunterladen dieser Datei ist nicht erlaubt.");
             } else {
-                result.latestDownloadDate = new Date();
-                // beim Senden der Datei: Header, die Dateinamen und Mimetype der Datei enthalten zum besseren Verstaendnis fuer HTTP-Client
-                return res.status(200).setHeader('Content-disposition', 'attachment; filename=' + result.fileName, 'Content-type', result.fileMimetype).send(result.fileBinary);
+                // Änderung des Download-Datums des entsprechenden Files
+                File.updateOne({"_id": result._id}, {$set: {"latestDownloadDate": new Date()}}, (error, dateUpdateResult) => {
+                    if(error) {
+                        return res.status(500).send("Interner Fehler beim Aktualisieren des Download-Datums.");
+                    }
+                    // beim Senden der Datei: Header, die Dateinamen und Mimetype der Datei enthalten zum besseren Verstaendnis fuer HTTP-Client
+                    return res.status(200).setHeader('Content-disposition', 'attachment; filename=' + result.fileName, 'Content-type', result.fileMimetype).send(result.fileBinary);
+                });
             }
         });
     });
