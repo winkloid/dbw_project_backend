@@ -1,6 +1,5 @@
 const axios = require("axios");
 const FormData = require("form-data");
-const asyncHandler = require("express-async-handler");
 const jsdom = require("jsdom");
 const { JSDOM } = jsdom;
 const { wrapper } = require("axios-cookiejar-support");
@@ -12,9 +11,11 @@ axios.defaults.validateStatus = function () {
 };
 
 const password = process.env.WTC_PASSWORD;
+const entryUrl = "https://www.tu-chemnitz.de/informatik/DVS/lehre/DBW/";
 
-const shibbolethAuth = async (req, res) => {
+async function shibbolethAuth() {
 
+    try {
     // NOTWENDIG, damit Axios die Cookies zwischenspeichert, die er erhält und bei nachfolgenden Requests wieder einbindet!
     const jar = new CookieJar();
     const axiosClient = wrapper(axios.create({ jar }));
@@ -32,28 +33,33 @@ const shibbolethAuth = async (req, res) => {
     })
     */
 
-    let firstResponse = await axiosClient.get("https://www.tu-chemnitz.de/informatik/DVS/blocklist", { withCredentials: true });
+    // verbinden mit Einstiegs-URL, die in "entryUrl" festgelegt ist
+    console.log("+++ Authenticating with TUC Shibboleth +++");
+    console.log("+ Connecting to entryUrl...");
+    let firstResponse = await axiosClient.get(entryUrl, { withCredentials: true });
     let firstResponseUrl = firstResponse.request.res.responseUrl;
-    console.log(firstResponseUrl);
 
-
+    // Vorbereiten der Formulardaten, die an die URL gesendet werden müssen, von der die Antwort nach der GET-Anfrage an die Einstiegs-URL kam, um den Authentifizierungsvorgang in Gang zu setzen
     let formData = FormData()
     formData.append("session", "true");
     formData.append("user_idp", "https://wtc.tu-chemnitz.de/shibboleth");
     formData.append("Select", "");
 
+    // vorbereitete formulardaten via POST an erhaltene URL senden
+    // URL, an die Daten gesendet werden hat folgende Form: https://wtc.tu-chemnitz.de/shibboleth/WAYF?entityID=...
+    console.log("+ Connecting to WAYF URL...");
     let wayfResponse = await axiosClient({
         method: "post",
         url: firstResponseUrl,
         data: formData,
-        //headers: {"Content-Type": "multipart/form-data"},
         maxRedirects: 0,
         withCredentials: true,
     }, { withCredentials: true }).then(function (response) {
         return response;
     });
-    console.log(wayfResponse.headers.location);
 
+    // Weiterleitung von URL vorher erhalten zu einer URL der Form https://www.tu-chemnitz.de/Shibboleth.sso/Login?SAMLDS=1&target=...
+    console.log("+ Connecting to Login-URL...");
     let loginResponse = await axiosClient({
         method: "get",
         url: wayfResponse.headers.location,
@@ -62,9 +68,9 @@ const shibbolethAuth = async (req, res) => {
     }, { withCredentials: true }).then(function (response) {
         return response;
     });
-    console.log(loginResponse.headers.location);
-    console.log(loginResponse.headers["set-cookie"]);
 
+    // Erneute Weiterleitung zu URL der Form https://wtc.tu-chemnitz.de/krb/saml2/idp/SSOService.php?SAMLRequest=...
+    console.log("+ Connecting to SAML SSOService-URL...");
     let samlResponse = await axiosClient({
         method: "get",
         url: loginResponse.headers.location,
@@ -73,16 +79,18 @@ const shibbolethAuth = async (req, res) => {
         return response;
     });
 
+    // Diese URL sendet letztendlich HTML-Daten, aus denen die nächste URL extrahiert werden muss - diese nächste URL hat die Form https://wtc.tu-chemnitz.de/krb/module.php/negotiate/backend.php?AuthState=...
     let samlResponseData = samlResponse.data;
     let htmlDocument = new JSDOM(samlResponseData);
+    // die nächste URL ist im HTML-Element  mit der ID "redirect" zu finden
     let redirectUrl = htmlDocument.window.document.querySelector("#redirect").href;
-    console.log(samlResponse.headers["set-cookie"]);
-    console.log(redirectUrl);
 
+    // außerdem enthält diese URL einen Parameter "AuthState", der für spätere Anfragen gebraucht wird und daher hier aus der URL extrahiert wird
     const redirectQuery = new URLSearchParams(redirectUrl.split("?")[1]);
     let authState = redirectQuery.get("AuthState");
-    console.log("AuthState: " + authState);
 
+    // GET-Anfrage an die extrahierte URL
+    console.log("+ Connecting to Backend-URL...");
     let backendResponse = await axiosClient({
         method: "get",
         url: redirectUrl,
@@ -93,15 +101,17 @@ const shibbolethAuth = async (req, res) => {
         return error.response;
     });
 
+    // als Antwort der vorherigen GET-Anfrage erhält man eine URL der Form https://wtc.tu-chemnitz.de/krb/module.php/TUC/username.php?AuthState=...
+    // diese URL führt zum ersten Teil des eigentlichen Anmeldeformulars, in dem Benutzername eingegeben wird
     let backendResponseUrl = backendResponse.request.res.responseUrl;
-    console.log(backendResponse.request.res.responseUrl);
 
-    // bereite Daten für username formular vor
+    // bereite Daten für username formular vor - hier wird auch der extrahierte AuthState-Parameter benötigt
     let usernameForm = new FormData();
     usernameForm.append("username", "owin");
     usernameForm.append("AuthState", authState);
 
-    // sende username daten an die vom backend erhaltene username url
+    // sende username daten via POST an die vom backend erhaltene username url
+    console.log("+ Connecting to Username-Form...")
     let usernameResponse = await axiosClient({
         method: "post",
         url: backendResponseUrl,
@@ -111,12 +121,17 @@ const shibbolethAuth = async (req, res) => {
         return response;
     });
 
-    console.log(usernameResponse.request.res.responseUrl);
+    // als Antwort auf die POST-Request erhält man eine Weiterleitung zur URL der Passworteingabe - dem zweiten Teil des Anmeldeformulars
+    // diese URL hat die Form https://wtc.tu-chemnitz.de/krb/module.php/core/loginuserpass.php?AuthState=...
     let usernameResponseUrl = usernameResponse.request.res.responseUrl;
 
+    // bereite Daten für Passworteingabeformular vor
     let passwordForm = new FormData();
     passwordForm.append("password", password);
     passwordForm.append("AuthState", authState);
+
+    // Senden der vorbereiteten Paswort-Formulardaten via POST an die erhaltene Passwort-URL
+    console.log("+ Connecting to Password-Form...");
     let passwordResponse = await axiosClient({
         method: "post",
         url: usernameResponseUrl,
@@ -126,15 +141,19 @@ const shibbolethAuth = async (req, res) => {
         return response;
     });
 
-    console.log(passwordResponse.request.res.responseUrl);
+    // als Antwort erhält man HTML-Daten, die wichtige Informationen für den nächsten Schritt enthalten - diese müssen wieder aus den HTML-Daten heraus extrahiert werden
     let passwordResponseData = passwordResponse.data;
     htmlPasswordResponse = new JSDOM(passwordResponseData);
+    // die Informationen befinden sich in HTML-Elementen mit den Namen "SAMLResponse" und "RelayState"
     let finalSAML = htmlPasswordResponse.window.document.querySelector('[name="SAMLResponse"]').value;
     let finalRelayState = htmlPasswordResponse.window.document.querySelector('[name="RelayState"]').value;
 
+    // die extrahierten Informationen müssen mit der nächsten POST-Request gesendet werden
+    // hierbei nimmt der Server keine Daten an, die mit FormData() erzeugt wurden, stattdessen musste ich hier URL-Search-Params verwenden, um Daten im Format x-www-form-urlencoded zu senden
     let finalForm = new URLSearchParams();
     finalForm.append("SAMLResponse", finalSAML);
     finalForm.append("RelayState", finalRelayState);
+    console.log("+ Sending final Authentication Request...")
     let finalResponse = await axiosClient({
         method: "post",
         url: "https://www.tu-chemnitz.de/Shibboleth.sso/SAML2/POST",
@@ -143,52 +162,19 @@ const shibbolethAuth = async (req, res) => {
     }, { withCredentials: true }).then((response) => {
         return response;
     });
-   
-    let blockListResponse =  await axiosClient({
-        method: "get",
-        url: "https://www.tu-chemnitz.de/informatik/DVS/blocklist/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        withCredentials: true,
-    }, {withCredentials:true}).then((response) => {
-        return response;
-    });
 
-    console.log(blockListResponse);
-
-
-
-
-    /*
-     let backendResponse = await axiosClient({
-         method: "get",
-         url: redirectUrl,
-         withCredentials: true,
-     }, {withCredentials: true}).then(function (response) {
-         return response;
-     }).catch(function (error) {
-         return error.response;
-     });
-     console.log(backendResponse.request.res.responseUrl);
- */
-    /*
-     let secondResponse = await axiosClient.post(firstResponseUrl, formData, {withCredentials: true, }).catch(function(response) {
-         secondResponseUrl = response.request.res.responseUrl;
-         let cookies = response.headers["set-cookie"];
-         console.log(secondResponseUrl);
-         console.log(cookies);
-         return response;
-     });
-      */
-    return res.status(200).send("Funktioniert.");
-    /*
-    try  {
-        const response = await axiosClient.get("https://www.tu-chemnitz.de/informatik/DVS/blocklist");
-        console.log(response.request.responseURL);
-        return res.status(200).send("Funktioniert.");
-        
-    } catch (error) {
-        console.error(error);
+    console.log("+++ Authenticated +++");
+    // übergebe AxiosClient, der alle Cookies enthält, um weitere Anfragen authentifiziert abwickeln zu können
+    return axiosClient;
+} catch (error) {
+    if(axios.isAxiosError(error)) {
+        console.log("ERROR WHEN CONNECTING. Please check your connection.");
+        return null;
+    } else {
+        console.log("Error when authenticating with WTC - please check e.g. your credentials, the entry url, etc.");
+        return null;
     }
-     */
+}
 };
 
 module.exports = {

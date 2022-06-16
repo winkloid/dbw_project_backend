@@ -2,6 +2,7 @@ const File = require("../models/file.model");
 const Hash = require("../models/hash.model");
 const ChangeBlockingRequest = require("../models/changeblockingrequest.model");
 const crypto = require("crypto");
+const {shibbolethAuth} = require("./shibboleth.controller");
 
 
 // function to delete old files from db automatically
@@ -21,6 +22,22 @@ async function deleteUnusedFiles() {
 deleteUnusedFiles().then(() => {
     console.log("Service for deleting unused files started...");
 })
+
+const authShibboleth = async (req, res) => {
+    const authenticatedAxiosClient = await shibbolethAuth();
+    if(authenticatedAxiosClient === null) {
+        return res.status(500).send("Fehler beim Authentifizieren über WTC der TU Chemnitz.");
+    }
+    let blockListResponse =  await authenticatedAxiosClient({
+        method: "get",
+        url: "https://www.tu-chemnitz.de/informatik/DVS/blocklist",
+        withCredentials: true,
+    }, {withCredentials:true}).then((response) => {
+        return response;
+    });
+    console.log(blockListResponse.data);
+    return res.status(200).send("OK HTTP");
+}
 
 const uploadFile = (req, res) => {
     // Bad request status, wenn keine Dateien hochgeladen wurden
@@ -264,6 +281,7 @@ const declineBlockingStatusChangeRequest = (req, res) => {
 }
 
 module.exports = {
+    authShibboleth,
     uploadFile,
     fileMetaData,
     fileViaId,
