@@ -2,21 +2,27 @@ const File = require("../models/file.model");
 const Hash = require("../models/hash.model");
 const ChangeBlockingRequest = require("../models/changeblockingrequest.model");
 const crypto = require("crypto");
-const {shibbolethAuth} = require("./shibboleth.controller");
+const { shibbolethAuth } = require("./shibboleth.controller");
+
+const blockListUrl = "https://www.tu-chemnitz.de/informatik/DVS/blocklist";
 
 
 // function to delete old files from db automatically
 async function deleteUnusedFiles() {
     const now = new Date().getTime();
-    const timeToLive = 1000*60*60*24*14; // time since latest download until file gets deleted: 14 days
-    const earliestAllowedLatestDownloadDate = now-timeToLive;
-    File.deleteMany({"latestDownloadDate": {$lte: earliestAllowedLatestDownloadDate}}, (error, deletion) => {
-        console.log("Service for deleting unused files deleted " + deletion.deletedCount + " files.");
+    const timeToLive = 1000 * 60 * 60 * 24 * 14; // time since latest download until file gets deleted: 14 days
+    const earliestAllowedLatestDownloadDate = now - timeToLive;
+    File.deleteMany({ "latestDownloadDate": { $lte: earliestAllowedLatestDownloadDate } }, (error, deletion) => {
+        if(error) {
+            console.log("Error deleting old files. Please check connection to database");
+        } else {
+            console.log("Service for deleting unused files deleted " + deletion.deletedCount + " files.");
+        }
     });
     // automatically recall every 12 hours
-    setTimeout( async () => {
+    setTimeout(async () => {
         await deleteUnusedFiles();
-    }, (1000*60*60*12));
+    }, (1000 * 60 * 60 * 12));
 }
 
 deleteUnusedFiles().then(() => {
@@ -25,21 +31,21 @@ deleteUnusedFiles().then(() => {
 
 const authShibboleth = async (req, res) => {
     const authenticatedAxiosClient = await shibbolethAuth();
-    if(authenticatedAxiosClient === null) {
+    if (authenticatedAxiosClient === null) {
         return res.status(500).send("Fehler beim Authentifizieren über WTC der TU Chemnitz.");
     }
-    let blockListResponse =  await authenticatedAxiosClient({
+    let blockListResponse = await authenticatedAxiosClient({
         method: "get",
         url: "https://www.tu-chemnitz.de/informatik/DVS/blocklist",
         withCredentials: true,
-    }, {withCredentials:true}).then((response) => {
+    }, { withCredentials: true }).then((response) => {
         return response;
     });
     console.log(blockListResponse.data);
     return res.status(200).send("OK HTTP");
 }
 
-const uploadFile = (req, res) => {
+const uploadFile = async (req, res) => {
     // Bad request status, wenn keine Dateien hochgeladen wurden
     if (!req.files.uploadedFile) { //|| Object.keys(req.files.uploadedFiles).length === 0) {
         return res.status(400).send("Fehler: Keine Dateien hochgeladen.");
@@ -72,38 +78,78 @@ const uploadFile = (req, res) => {
         });
 
         // Speichern des Datenbankdokuments fuer die hochgeladene Datei in MongoDB
-        file.save((error, result) => {
-            // interner Servier Fehler, wenn Datei nicht gespeichert werden konnte
-            if(error) {
-                return res.status(500).send("Fehler beim Speichern der Datei.");
+        let fileData = await file.save().then((result) => {
+            return result;
+        }).catch((error) => {
+            return null;
+        });
+
+        if(fileData === null) {
+            // interner Server Fehler, wenn Datei nicht gespeichert werden konnte
+            return res.status(500).send("Fehler beim Speichern der Datei.");
+        }
+            
+        // Ueberpruefen, ob Hash der hochgeladenen Datei schon vorhanden ist: wenn ja, kein neues Dokument dafuer erstellen
+        let existingHashes = await Hash.find({ "sha256Hash": sha256Hash }).then((existingHashes) => {
+            return existingHashes;
+        }).catch((error) => {
+            return null;
+        });
+
+        if (existingHashes === null) {
+            return res.status(500).send("Fehler beim Überprüfen der SHA-Hash-Datenbank.");
+        }
+
+        // wenn der SHA256-Hash noch nicht in der Hash-Datenbank gecached ist, dann Blocklistenservice abfragen und Antwort in Hash-Datenbank einpflegen
+        if (!existingHashes.length) {
+            const authenticatedAxiosClient = await shibbolethAuth();
+            if (authenticatedAxiosClient === null) {
+                // wenn Fehler bei Authentifizierung mit WTC system auftritt
+                return res.status(500).send("Fehler beim Authentifizieren mit WTC. Bitte versuchen Sie es später erneut.");
             } else {
-                // Ueberpruefen, ob Hash der hochgeladenen Datei schon vorhanden ist: wenn ja, kein neues Dokument dafuer erstellen
-                Hash.find({"sha256Hash": sha256Hash}, (error, existingHashes) => {
-                    if (!existingHashes.length) {
-                        let hash = new Hash({
-                            sha256Hash: file.sha256Hash,
-                            isBlocked: true,
-                        });
-                        hash.save((error) => {
-                            if (error) {
-                                return res.status(500).send("Fehler beim Speichern des Dateihashes.");
-                            }
-                        });
-                    }
-                    // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
-                    return res.status(200).json({
-                        fileUrl: result._id.toString(),
-                    });
+                // Blockservice nach sha hash abfragen
+                let blockListResponse = await authenticatedAxiosClient({
+                    method: "get",
+                    url: blockListUrl + "/" + sha256Hash,
+                    withCredentials: true,
+                }, { withCredentials: true }).then((response) => {
+                    return response;
+                }).catch((error) => {
+                    return null;
                 });
+
+                // wenn Blocklist Service keine gültige Antwort liefert
+                if (blockListResponse === null) {
+                    return res.status(500).send("Fehler beim Abruf des Blocking-Services.");
+                }
+                // wenn blocklist service gültigen Status-Code liefert (200 oder 210)
+                if (blockListResponse.status === 200 || blockListResponse.status === 210) {
+                    let hash = new Hash({
+                        sha256Hash: file.sha256Hash,
+                        isBlocked: (blockListResponse.status === 200) ? false : true,
+                    });
+                    hash.save((error) => {
+                        if (error) {
+                            return res.status(500).send("Fehler beim Speichern des Dateihashes.");
+                        }
+                    });
+                } else {
+                    // wenn Blocklist service unbekannten Status-Code liefert
+                    return res.status(500).send("Fehler beim Abruf des Blocking-Services.");
+                }
             }
-        })
+        }
+        // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
+        return res.status(200).json({
+            fileUrl: fileData._id.toString(),
+        });
     }
 }
 
 const fileMetaData = (req, res) => {
     // Versuche, Datei zu finden, die die als Param uebergebene ID besitzt
-    File.findById(req.params.id,(error, result) => {
-        if(error) {
+    File.findById(req.params.id, (error, result) => {
+        if (error) {
             return res.status(404).send("Angegebene ID befindet sich nicht im richtigen Format und konnte nicht gefunden werden.");
         }
 
@@ -113,7 +159,7 @@ const fileMetaData = (req, res) => {
         }
 
         // wenn gefunden: Metadaten und Hash finden und zurückgeben
-        Hash.findOne({"sha256Hash": result.sha256Hash}, (error, hashResult) => {
+        Hash.findOne({ "sha256Hash": result.sha256Hash }, (error, hashResult) => {
             if (hashResult === null || error) {
                 return res.status(500).send("Fehler bei Abfrage des Blocking-Status. ");
             }
@@ -132,8 +178,8 @@ const fileMetaData = (req, res) => {
 
 const fileViaId = (req, res) => {
     // versuche, Datei zu finden, die die als Param uebergebene ID besitzt
-    File.findById(req.params.id,(error, result) => {
-        if(error) {
+    File.findById(req.params.id, (error, result) => {
+        if (error) {
             return res.status(500).send("Interner Fehler");
         }
 
@@ -143,16 +189,16 @@ const fileViaId = (req, res) => {
         }
 
         // wenn gefunden: Hash suchen, pruefen, ob blockiert und wenn nicht: Datei senden
-        Hash.findOne({"sha256Hash": result.sha256Hash}, (error, hashResult) => {
+        Hash.findOne({ "sha256Hash": result.sha256Hash }, (error, hashResult) => {
             if (hashResult === null || error) {
                 return res.status(500).send("Fehler bei Abfrage des Blocking-Status. ");
             }
-            if(hashResult.isBlocked) {
+            if (hashResult.isBlocked) {
                 return res.status(403).send("Das Herunterladen dieser Datei ist nicht erlaubt.");
             } else {
                 // Änderung des Download-Datums des entsprechenden Files
-                File.updateOne({"_id": result._id}, {$set: {"latestDownloadDate": new Date()}}, (error, dateUpdateResult) => {
-                    if(error) {
+                File.updateOne({ "_id": result._id }, { $set: { "latestDownloadDate": new Date() } }, (error, dateUpdateResult) => {
+                    if (error) {
                         return res.status(500).send("Interner Fehler beim Aktualisieren des Download-Datums.");
                     }
                     // beim Senden der Datei: Header, die Dateinamen und Mimetype der Datei enthalten zum besseren Verstaendnis fuer HTTP-Client
@@ -167,7 +213,7 @@ const requestBlockingStatusChange = (req, res) => {
     try {
         const requestMessage = req.body.requestMessage;
         let requestBlocking = false;
-        if(req.body.blockFile === "true") { // blockFile muss hier als String mit "true" oder "false" gesendet werden für mehr Eindeutigkeit
+        if (req.body.blockFile === "true") { // blockFile muss hier als String mit "true" oder "false" gesendet werden für mehr Eindeutigkeit
             requestBlocking = true;
         }
 
@@ -181,7 +227,7 @@ const requestBlockingStatusChange = (req, res) => {
             }
 
             // ueberpruefen, ob entsprechende Datei bereits blockiert/deblockiert ist
-            Hash.findOne({"sha256Hash": result.sha256Hash}, (error, hashResult) => {
+            Hash.findOne({ "sha256Hash": result.sha256Hash }, (error, hashResult) => {
                 if (hashResult === null || error) {
                     return res.status(500).send("Interner Fehler bei Abfrage des Blocking-Status. ");
                 }
@@ -226,7 +272,7 @@ const requestBlockingStatusChange = (req, res) => {
 
 const blockingStatusChangeRequests = (req, res) => {
     ChangeBlockingRequest.find({}, (error, changeBlockingRequests) => {
-        if(error) {
+        if (error) {
             res.status(500).send(error);
         } else {
             return res.status(200).send(changeBlockingRequests);
@@ -236,25 +282,25 @@ const blockingStatusChangeRequests = (req, res) => {
 
 const acceptBlockingStatusChangeRequest = (req, res) => {
     ChangeBlockingRequest.findById(req.params.requestId, (error, changeRequest) => {
-        if(error) {
+        if (error) {
             return res.status(404).send(error);
         }
-        if(changeRequest === null) {
+        if (changeRequest === null) {
             return res.status(404).send("Die Anfrage zur Aenderung des Blocking-Status wurde nicht gefunden.");
         }
 
-        Hash.findOne({"sha256Hash": changeRequest.sha256Hash}, (error, hashResult) => {
-            if(error) {
+        Hash.findOne({ "sha256Hash": changeRequest.sha256Hash }, (error, hashResult) => {
+            if (error) {
                 return res.status(404).send(error);
             }
-            if(changeRequest.blockFile === hashResult.isBlocked) {
+            if (changeRequest.blockFile === hashResult.isBlocked) {
                 return res.status(500).send("Fehlerhafte Statusaenderungsanfrage - der angeforderte Blocking-Status ist bereits gesetzt.");
             } else {
 
-                Hash.updateOne({"sha256Hash": changeRequest.sha256Hash}, {$set: {isBlocked: changeRequest.blockFile}}, (error, hashUpdate) => {
+                Hash.updateOne({ "sha256Hash": changeRequest.sha256Hash }, { $set: { isBlocked: changeRequest.blockFile } }, (error, hashUpdate) => {
 
-                    ChangeBlockingRequest.deleteMany({"sha256Hash": changeRequest.sha256Hash}, (error) => {
-                        if(error) {
+                    ChangeBlockingRequest.deleteMany({ "sha256Hash": changeRequest.sha256Hash }, (error) => {
+                        if (error) {
                             return res.status(500).send(error);
                         } else {
                             return res.status(200).send("Erfolg: Status geaendert.");
@@ -267,7 +313,7 @@ const acceptBlockingStatusChangeRequest = (req, res) => {
 }
 
 const declineBlockingStatusChangeRequest = (req, res) => {
-    ChangeBlockingRequest.deleteOne({"_id": req.params.requestId}, (error, changeRequest) => {
+    ChangeBlockingRequest.deleteOne({ "_id": req.params.requestId }, (error, changeRequest) => {
         console.log(changeRequest);
         if (error) {
             return res.status(404).send(error);
