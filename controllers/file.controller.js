@@ -3,6 +3,8 @@ const Hash = require("../models/hash.model");
 const ChangeBlockingRequest = require("../models/changeblockingrequest.model");
 const crypto = require("crypto");
 const { shibbolethAuth } = require("./shibboleth.controller");
+const { updateOne } = require("../models/file.model");
+const { setDefaultResultOrder } = require("dns");
 
 const blockListUrl = "https://www.tu-chemnitz.de/informatik/DVS/blocklist";
 
@@ -13,7 +15,7 @@ async function deleteUnusedFiles() {
     const timeToLive = 1000 * 60 * 60 * 24 * 14; // time since latest download until file gets deleted: 14 days
     const earliestAllowedLatestDownloadDate = now - timeToLive;
     File.deleteMany({ "latestDownloadDate": { $lte: earliestAllowedLatestDownloadDate } }, (error, deletion) => {
-        if(error) {
+        if (error) {
             console.log("Error deleting old files. Please check connection to database");
         } else {
             console.log("Service for deleting unused files deleted " + deletion.deletedCount + " files.");
@@ -28,6 +30,86 @@ async function deleteUnusedFiles() {
 deleteUnusedFiles().then(() => {
     console.log("Service for deleting unused files started...");
 })
+
+async function updateHashCache() {
+    console.log("Service for updating local hash cache started...");
+
+    // zuerst: Array aller in Hash-Datenbank gecachten Hashes abrufen
+    let hashCache = await Hash.find({}).then((hashResult) => {
+        return hashResult;
+    }).catch((hashError) => {
+        return -1;
+    });
+    // falls es beim Abruf einen Fehler gab: entsprechende Fehlermeldung in Konsole Drucken.
+    if (hashCache === -1) {
+        console.log("HashStatusUpdateService: Error getting local SHA256 hash blocking list. Please check connection to the distributed blocklist web service");
+
+    } else { // wenn kein Fehler: mit WTC authentifizieren und eine Axios-Instanz mit allen dabei erhaltenen Cookies erzeugen
+        const authenticatedAxiosClient = await shibbolethAuth();
+        if (authenticatedAxiosClient === null) {
+            console.log("Fehler beim Authentifizieren über WTC der TU Chemnitz.");
+        } else { // wenn bei Erzeugung der Axios-Instanz kein Fehler auftrat: durch Array von gecachten Hashes iterieren
+            for (let hashIterator = 0; hashIterator < hashCache.length; hashIterator++) {
+                console.log("HashStatusUpdateService: Updating BlockingStatus for hash: " + hashCache[hashIterator].sha256Hash);
+                // für jeden Hash des Arrays: aktuellen Blockstatus von Distributed Blocklist Service abfragen
+                let newHashStatus = await authenticatedAxiosClient({
+                    method: "get",
+                    url: blockListUrl + "/" + hashCache[hashIterator].sha256Hash,
+                    withCredentials: true,
+                }, {withCredentials: true}).then((blockListResponse) => {
+
+                    // wenn Blocklist web service bekannten Status liefert: Wert für neuen Blocking-Status entsprechend setzen, sonst Fehlermeldung
+                    if(blockListResponse.status === 200 || blockListResponse.status === 210) {
+                        return (blockListResponse.status === 200) ? false : true;
+                    } else if(blockListResponse.status === 418) {
+                        hashIterator --; // wenn nur http-status 418 am Fehler schuld ist: diesen Hash noch einmal probieren
+                        console.log("HashStatusUpdateService: Teapot, retrying hash...");
+                        return -1;
+                    }
+                    else {
+                        console.log("HashStatusUpdateService: Fehler beim Abruf des neuen Blockierungsstatus für Hash: " + hashCache[hashIterator].sha256Hash + " Grund: fehlerhafter HTTP-Status " + blockListResponse.status);
+                        return -1;
+                    }
+                }).catch((error) => {
+                    console.log("HashStatusUpdateService: Fehler beim Abruf des neuen Blockierungsstatus für Hash: " + hashCache[hashIterator].sha256Hash + " Grund: " + error);
+                    return -1;
+                });
+                if(newHashStatus === -1) {} else { // wenn kein Fehler beim Abfragen des Blocklist Webservices:
+
+                    // zunächst überprüfen, ob der aktuelle Status schon der richtige ist - wenn ja: kein weiterer Datenbankzugriff notwendig, wenn nein:
+                    if(!(hashCache[hashIterator].isBlocked === newHashStatus)) {
+                        // Eintragen des neuen Status in den entsprechenden Eintrag im lokalen hash cache und bei Fehler entsprechende Meldung
+                        let updatedHash = await Hash.updateOne({"sha256Hash": hashCache[hashIterator].sha256Hash}, {$set: {"isBlocked": newHashStatus}}).then((updatedStatusHash) => {
+                            return updatedStatusHash;
+                        }).catch((error) => {
+                            return -1;
+                        });
+                        if(updatedHash === -1) {
+                            console.log("HashStatusUpdateService: Fehler beim Speichern des neuen Blockierungsstatus für Hash: " + hashCache[hashIterator].sha256Hash);
+                        } else {
+                            // wenn kein Fehler beim update des lokalen Hash: auch veraltete (Un)Blocking-Requests löschen, die sich noch auf den alten Blocking-Status beziehen
+                            ChangeBlockingRequest.deleteMany({"sha256Hash": hashCache[hashIterator].sha256Hash}, (error, deletion) => {
+                                if(error) {
+                                    console.log("HashStatusUpdateService: Fehler beim Löschen einer veralteten Blocking/Unblocking-Anfrage.");
+                                }
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // hashes sollen zumindest alle 12 Stunden aktualisiert werden
+    // da es Fehler bei der Verbindung geben kann, wurden hier stattdessen 6 Stunden gesetzt - dieser Wert ist bei Bedarf einfach anzupassen
+    setTimeout(async () => {
+        await updateHashCache();
+    }, (1000 * 60 * 60 * 6));
+}
+
+updateHashCache().then(() => {
+    console.log("Service for updating local hash cache completed.");
+})
+
 
 const authShibboleth = async (req, res) => {
     const authenticatedAxiosClient = await shibbolethAuth();
@@ -84,11 +166,11 @@ const uploadFile = async (req, res) => {
             return null;
         });
 
-        if(fileData === null) {
+        if (fileData === null) {
             // interner Server Fehler, wenn Datei nicht gespeichert werden konnte
             return res.status(500).send("Fehler beim Speichern der Datei.");
         }
-            
+
         // Ueberpruefen, ob Hash der hochgeladenen Datei schon vorhanden ist: wenn ja, kein neues Dokument dafuer erstellen
         let existingHashes = await Hash.find({ "sha256Hash": sha256Hash }).then((existingHashes) => {
             return existingHashes;
@@ -302,11 +384,10 @@ const acceptBlockingStatusChangeRequest = async (req, res) => {
                     method: (changeRequest.blockFile) ? "put" : "delete",
                     url: blockListUrl + "/" + changeRequest.sha256Hash,
                     withCredentials: true,
-                }, {withCredentials: true}).then((blocklistResult) => {
+                }, { withCredentials: true }).then((blocklistResult) => {
 
                     // wenn Blocklist service erwarteten Status zurückgibt, trage Änderungen auch in lokalen SHA256-Cache ein
-                    if(blocklistResult.status === 201 || blocklistResult.status === 204) {
-                        console.log(blocklistResult.status);
+                    if (blocklistResult.status === 201 || blocklistResult.status === 204) {
                         Hash.updateOne({ "sha256Hash": changeRequest.sha256Hash }, { $set: { isBlocked: changeRequest.blockFile } }, (error, hashUpdate) => {
                             ChangeBlockingRequest.deleteMany({ "sha256Hash": changeRequest.sha256Hash }, (error) => {
                                 if (error) {
@@ -322,7 +403,7 @@ const acceptBlockingStatusChangeRequest = async (req, res) => {
                     }
                 }).catch((error) => {
                     return res.status(500).send("Interner Fehler bei der Abfrage des Blocklist Web Services: " + error);
-                });  
+                });
             }
         });
     });
