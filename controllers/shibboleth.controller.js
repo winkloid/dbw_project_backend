@@ -5,6 +5,9 @@ const { JSDOM } = jsdom;
 const { wrapper } = require("axios-cookiejar-support");
 const { CookieJar } = require("tough-cookie");
 
+// allow axios to send cookies as described in https://flaviocopes.com/axios-credentials/
+axios.defaults.withCredentials = true;
+// never return error on wrong statusCode of http-Response as shown in https://github.com/axios/axios/issues/960
 axios.defaults.validateStatus = function () {
     return true;
 };
