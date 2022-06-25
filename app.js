@@ -11,7 +11,6 @@ mongoose.connect(process.env.MONGODB_CONNECTION_STRING, {useNewUrlParser:true,us
     if(error?console.log(error):console.log("MongoDB Verbindung hergestellt: " + process.env.MONGODB_CONNECTION_STRING));
 });
 
-
 application.use(cors());
 application.use(express.json());
 application.use(express.urlencoded({extended: true}));

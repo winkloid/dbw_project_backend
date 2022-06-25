@@ -3,13 +3,13 @@ const Hash = require("../models/hash.model");
 const ChangeBlockingRequest = require("../models/changeblockingrequest.model");
 const crypto = require("crypto");
 const { shibbolethAuth } = require("./shibboleth.controller");
-const { updateOne } = require("../models/file.model");
-const { setDefaultResultOrder } = require("dns");
 
 const blockListUrl = "https://www.tu-chemnitz.de/informatik/DVS/blocklist";
 
 
 // function to delete old files from db automatically
+// similar to https://stackoverflow.com/questions/66954486/mongoose-delete-records-after-certain-time
+// and https://stackoverflow.com/questions/1296358/how-to-subtract-days-from-a-plain-date
 async function deleteUnusedFiles() {
     const now = new Date().getTime();
     const timeToLive = 1000 * 60 * 60 * 24 * 14; // time since latest download until file gets deleted: 14 days
@@ -57,7 +57,7 @@ async function updateHashCache() {
                     url: blockListUrl + "/" + hashCache[hashIterator].sha256Hash,
                     withCredentials: true,
                 }, {withCredentials: true}).then((blockListResponse) => {
-
+                    
                     // wenn Blocklist web service bekannten Status liefert: Wert für neuen Blocking-Status entsprechend setzen, sonst Fehlermeldung
                     if(blockListResponse.status === 200 || blockListResponse.status === 210) {
                         return (blockListResponse.status === 200) ? false : true;

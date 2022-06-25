@@ -5,12 +5,12 @@ const { JSDOM } = jsdom;
 const { wrapper } = require("axios-cookiejar-support");
 const { CookieJar } = require("tough-cookie");
 
-axios.defaults.withCredentials = true;
 axios.defaults.validateStatus = function () {
     return true;
 };
 
 const password = process.env.WTC_PASSWORD;
+const username = process.env.WTC_USERNAME;
 const entryUrl = "https://www.tu-chemnitz.de/informatik/DVS/lehre/DBW/";
 
 async function shibbolethAuth() {
@@ -107,7 +107,7 @@ async function shibbolethAuth() {
 
     // bereite Daten für username formular vor - hier wird auch der extrahierte AuthState-Parameter benötigt
     let usernameForm = new FormData();
-    usernameForm.append("username", "owin");
+    usernameForm.append("username", username);
     usernameForm.append("AuthState", authState);
 
     // sende username daten via POST an die vom backend erhaltene username url
