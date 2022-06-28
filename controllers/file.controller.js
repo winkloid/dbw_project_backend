@@ -111,6 +111,7 @@ updateHashCache().then(() => {
 })
 
 const uploadFile = async (req, res) => {
+    try {
     // Bad request status, wenn keine Dateien hochgeladen wurden
     if (!req.files.uploadedFile) { //|| Object.keys(req.files.uploadedFiles).length === 0) {
         return res.status(400).send("Fehler: Keine Dateien hochgeladen.");
@@ -208,6 +209,9 @@ const uploadFile = async (req, res) => {
         return res.status(200).json({
             fileUrl: fileData._id.toString(),
         });
+    }
+    } catch(error) {
+        return res.status(400).send("Fehlerhafte Anfrage. Bitte senden Sie eine Datei mit Ihrer Anfrage.");
     }
 }
 
@@ -338,7 +342,7 @@ const requestBlockingStatusChange = (req, res) => {
 const blockingStatusChangeRequests = (req, res) => {
     ChangeBlockingRequest.find({}, (error, changeBlockingRequests) => {
         if (error) {
-            res.status(500).send(error);
+            res.status(500).send("Interner Fehler beim Abruf der Zustandsänderungsanfragen.");
         } else {
             return res.status(200).send(changeBlockingRequests);
         }
@@ -347,6 +351,9 @@ const blockingStatusChangeRequests = (req, res) => {
 
 const acceptBlockingStatusChangeRequest = async (req, res) => {
     let authenticatedAxiosClient = await shibbolethAuth();
+    if(authenticatedAxiosClient === null) {
+        return res.status(500).send("Interner Fehler bei Kontaktaufnahme mit dem Web-Trust-Center der TU Chemnitz.");
+    }
     ChangeBlockingRequest.findById(req.params.requestId, (error, changeRequest) => {
         if (error) {
             return res.status(404).send(error);
@@ -374,7 +381,7 @@ const acceptBlockingStatusChangeRequest = async (req, res) => {
                         Hash.updateOne({ "sha256Hash": changeRequest.sha256Hash }, { $set: { isBlocked: changeRequest.blockFile } }, (error, hashUpdate) => {
                             ChangeBlockingRequest.deleteMany({ "sha256Hash": changeRequest.sha256Hash }, (error) => {
                                 if (error) {
-                                    return res.status(500).send(error);
+                                    return res.status(500).send("Interner Fehler beim Entfernen der umgesetzten Blockierungs-Zustandsaenderungsantraege.");
                                 } else {
                                     return res.status(200).send("Erfolg: Status geaendert.");
                                 }
