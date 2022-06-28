@@ -110,23 +110,6 @@ updateHashCache().then(() => {
     console.log("Service for updating local hash cache completed.");
 })
 
-
-const authShibboleth = async (req, res) => {
-    const authenticatedAxiosClient = await shibbolethAuth();
-    if (authenticatedAxiosClient === null) {
-        return res.status(500).send("Fehler beim Authentifizieren über WTC der TU Chemnitz.");
-    }
-    let blockListResponse = await authenticatedAxiosClient({
-        method: "get",
-        url: "https://www.tu-chemnitz.de/informatik/DVS/blocklist",
-        withCredentials: true,
-    }, { withCredentials: true }).then((response) => {
-        return response;
-    });
-    console.log(blockListResponse.data);
-    return res.status(200).send("OK HTTP");
-}
-
 const uploadFile = async (req, res) => {
     // Bad request status, wenn keine Dateien hochgeladen wurden
     if (!req.files.uploadedFile) { //|| Object.keys(req.files.uploadedFiles).length === 0) {
@@ -262,7 +245,7 @@ const fileViaId = (req, res) => {
     // versuche, Datei zu finden, die die als Param uebergebene ID besitzt
     File.findById(req.params.id, (error, result) => {
         if (error) {
-            return res.status(500).send("Interner Fehler");
+            return res.status(404).send("Angegebene ID befindet sich nicht im richtigen Format und konnte nicht gefunden werden.");
         }
 
         // wenn nicht gefunden: 404-Status
@@ -301,7 +284,7 @@ const requestBlockingStatusChange = (req, res) => {
 
         File.findById(req.params.id, (error, result) => {
             if (error) {
-                return res.status(500).send("Fehler beim Verarbeiten der Datei-ID.");
+                return res.status(404).send("Angegebene ID befindet sich nicht im richtigen Format und konnte nicht gefunden werden.");
             }
 
             if (result === null) {
@@ -377,7 +360,7 @@ const acceptBlockingStatusChangeRequest = async (req, res) => {
                 return res.status(404).send(error);
             }
             if (changeRequest.blockFile === hashResult.isBlocked) {
-                return res.status(500).send("Fehlerhafte Statusaenderungsanfrage - der angeforderte Blocking-Status ist bereits gesetzt.");
+                return res.status(400).send("Fehlerhafte Statusaenderungsanfrage - der angeforderte Blocking-Status ist bereits gesetzt.");
             } else {
                 // Senden der Änderungsanfrage an den Blocklist web service
                 return authenticatedAxiosClient({
@@ -411,7 +394,6 @@ const acceptBlockingStatusChangeRequest = async (req, res) => {
 
 const declineBlockingStatusChangeRequest = (req, res) => {
     ChangeBlockingRequest.deleteOne({ "_id": req.params.requestId }, (error, changeRequest) => {
-        console.log(changeRequest);
         if (error) {
             return res.status(404).send(error);
         } else if (changeRequest.deletedCount === 0) {
@@ -424,7 +406,6 @@ const declineBlockingStatusChangeRequest = (req, res) => {
 }
 
 module.exports = {
-    authShibboleth,
     uploadFile,
     fileMetaData,
     fileViaId,

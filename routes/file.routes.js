@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const {
-    authShibboleth,
     uploadFile,
     fileMetaData,
     fileViaId,
@@ -11,8 +10,6 @@ const {
     declineBlockingStatusChangeRequest,
 } = require("../controllers/file.controller");
 const {request} = require("express");
-
-router.get("/authShibboleth", authShibboleth)
 
 router.post("/uploadFile", uploadFile);
 
