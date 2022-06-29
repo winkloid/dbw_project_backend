@@ -38,4 +38,4 @@ Alle Dependencies der Projektlösung sind in dbw_project_backend/package.json au
     npm run dev
     ```
 
-- Der Backend-Teil der Anwendung sollte nun über http://localhost:49749 erreichbar sein. Wenn Sie ihn wieder beenden möchten, schließen Sie entweder das entsprechende Terminal Fenster oder Drücken Sie STRG + C und bestätigen das Ende der Ausführung.
+- Der Backend-Teil der Anwendung sollte nun über http://localhost:49749 erreichbar sein. Wenn Sie ihn wieder beenden möchten, schließen Sie entweder das entsprechende Terminalfenster oder drücken Sie STRG + C und bestätigen das Ende der Ausführung.
