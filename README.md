@@ -6,17 +6,17 @@ Stellen Sie zuvor sicher, dass die neueste Version von NPM und Node.js auf Ihrem
 
 ## 1. Installation der Dependencies
 
-Alle Dependencies der Projektlösung sind in dbw_project_backend/package.json aufgerführt. Um diese automatisch durch NPM installieren zu lassen, navigieren Sie zunächst in den Projektordner des Backend-Teils der Projektlösung. Hierzu können Sie unter Windows beispielsweise Windows PowerShell verwenden:
+Alle Dependencies der Projektlösung sind in dbw_project_backend/package.json aufgeführt. Um diese automatisch durch NPM installieren zu lassen, navigieren Sie zunächst in den Projektordner des Backend-Teils der Projektlösung. Hierzu können Sie unter Windows beispielsweise Windows PowerShell verwenden:
 
-- öffnen Sie das Terminal
+- Öffnen Sie ein Terminalfenster
 
-- navigieren Sie mithilfe des cd-Befehls in das "dbw_project_backend"-Verzeichnis, z.B.:
+- Navigieren Sie mithilfe des cd-Befehls in das "dbw_project_backend"-Verzeichnis, z.B.:
 
   - ```
     cd C:\Users\MaxMustermann\Downloads\dbw_project_backend
     ```
 
-- führen Sie in diesem Verzeichnis über Ihr Terminal nun den folgenden Befehl aus:
+- Führen Sie in diesem Verzeichnis über Ihr Terminal nun den folgenden Befehl aus:
 
   - ```
     npm install
@@ -24,7 +24,7 @@ Alle Dependencies der Projektlösung sind in dbw_project_backend/package.json au
 
 - Sie sollten nun ein neues Verzeichnis "node_modules" innerhalb des "dbw_project_backend"-Verzeichnisses sehen, in dem die Dateien der notwendigen Dependencies enthalten sind.
 
-- Legen Sie im Root des "dbw_project_backend"-Verzeichnisses eine neue Datei namens ".env" an (ohne Anführungszeichen). Darin fügen Sie die Verbindungs-URL Ihrer MongoDB-Instanz, sowie Ihren Benutzername und Ihr Passwort für die Anmeldung beim Web-Trust-Center der TU Chemnitz nach folgendem Schema ein und speichern Sie sie ab:
+- Legen Sie im Root des "dbw_project_backend"-Verzeichnisses eine neue Datei namens ".env" an (ohne Anführungszeichen). Darin fügen Sie die Verbindungs-URL zu Ihrer MongoDB-Instanz, sowie Ihren Benutzername und Ihr Passwort für die Anmeldung beim Web-Trust-Center der TU Chemnitz nach folgendem Schema ein und speichern die Datei anschließend:
 
   - ```
     MONGODB_CONNECTION_STRING = "mongodb://127.0.0.1:27017/dbw_project_winkler"
@@ -32,7 +32,7 @@ Alle Dependencies der Projektlösung sind in dbw_project_backend/package.json au
     WTC_USERNAME="<Ihr WTC-Benutzername>"
     ```
 
-- zum Schluss starten Sie den Backend-Teil über Ihr Terminal (immer noch im "dbw_project_backend"-Verzeichnis navigiert) über folgenden Befehl:
+- Zum Schluss starten Sie den Backend-Teil über Ihr Terminal (immer noch im "dbw_project_backend"-Verzeichnis befindlich) über folgenden Befehl:
 
   - ```
     npm run dev
