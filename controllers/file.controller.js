@@ -143,18 +143,6 @@ const uploadFile = async (req, res) => {
             sha256Hash: sha256Hash,
         });
 
-        // Speichern des Datenbankdokuments fuer die hochgeladene Datei in MongoDB
-        let fileData = await file.save().then((result) => {
-            return result;
-        }).catch((error) => {
-            return null;
-        });
-
-        if (fileData === null) {
-            // interner Server Fehler, wenn Datei nicht gespeichert werden konnte
-            return res.status(500).send("Fehler beim Speichern der Datei.");
-        }
-
         // Ueberpruefen, ob Hash der hochgeladenen Datei schon vorhanden ist: wenn ja, kein neues Dokument dafuer erstellen
         let existingHashes = await Hash.find({ "sha256Hash": sha256Hash }).then((existingHashes) => {
             return existingHashes;
@@ -205,6 +193,19 @@ const uploadFile = async (req, res) => {
                 }
             }
         }
+
+        // Speichern des Datenbankdokuments fuer die hochgeladene Datei in MongoDB
+        let fileData = await file.save().then((result) => {
+            return result;
+        }).catch((error) => {
+            return null;
+        });
+
+        if (fileData === null) {
+            // interner Server Fehler, wenn Datei nicht gespeichert werden konnte
+            return res.status(500).send("Fehler beim Speichern der Datei.");
+        }
+
         // wenn alle Daten gespeichert wurden: Rueckgabe des Status-Codes HTTP-OK und einer Download-URL
         return res.status(200).json({
             fileUrl: fileData._id.toString(),
